@@ -1,0 +1,102 @@
+services:
+  api-gateway: # Add rate limiting, JWT validation, and request proxying.
+    build: ./services/api-gateway
+    container_name: api_gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth:4000
+      - USER_SERVICE_URL=http://user:4001
+    depends_on:
+      - auth
+      - user
+    networks:
+      - backend
+
+  auth: # Handles login, token generation, and session tracking (can use Redis).
+    build: ./services/auth
+    container_name: auth_service
+    restart: on-failure
+    ports:
+      - "4000:4000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/authdb
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    depends_on:
+      - mongo
+      - redis
+      - rabbitmq
+    networks:
+      - backend
+
+  user: # Manages profiles, settings, preferences.
+    build: ./services/user
+    container_name: user_service
+    ports:
+      - "4001:4001"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/userdb
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    depends_on:
+      - mongo
+      - rabbitmq
+    networks:
+      - backend
+
+  frontend: # A React or Vue app communicating with api-gateway.
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "8080:80"
+      - "3001:3000"
+    depends_on:
+      - api-gateway
+    networks:
+      - frontend
+      - backend
+
+  mongo:
+    image: mongo:6.0
+    container_name: mongo_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - backend
+
+  redis:
+    image: redis:7.0
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    networks:
+      - backend
+
+  rabbitmq: # Use for events like "user created", "password changed", etc.
+    image: rabbitmq:3-management
+    container_name: rabbitmq_broker
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management dashboard
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:15672"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - backend
+
+volumes:
+  mongo_data:
+
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge
